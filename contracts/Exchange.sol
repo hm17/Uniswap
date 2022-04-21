@@ -264,10 +264,39 @@ contract Exchange {
 
         return weiBought;
     }
+    
+    /** @dev Convert ETH to tokens */
+    function tokenToEthSwapInput(uint tokensSold, uint minEth, uint deadline) public returns (uint) {
+        return tokenToEthInput(tokensSold, minEth, deadline, msg.sender, msg.sender);
+    }
 
-    function tokenToEthSwapInput() public {}
+    /** @dev Convert ETH to tokens and transfer ETH */
+    function tokenToEthTransferInput(uint tokensSold, uint minEth, uint deadline, address recipient) public returns (uint) {
+        require(recipient != msg.sender, "Recipient cannot be self");
+        require(recipient != address(0), "Recipient cannot have zero address");
 
-    function tokenToEthTransferInput() public {}
+        return tokenToEthInput(tokensSold, minEth, deadline, msg.sender, recipient);
+    }
+
+    function tokenToEthOutput(uint ethBought, uint maxTokens, uint deadline, address buyer, address recipient) private returns (uint) {
+        require(deadline > block.timestamp, "The timelimit has passed");
+        require(ethBought > 0, "Invalid value for ETH bought");
+
+        IERC20 token = IERC20(tokenAddress);
+        uint tokenReserve = token.balanceOf(address(this));
+
+        uint tokensSold = getOutputPrice(ethBought, tokenReserve, balances[(address(this))]);
+
+        require(maxTokens >= tokensSold);
+
+        payable(recipient).send(ethBought); //TODO: use send or transfer? (check out other instances in code)
+
+        token.transferFrom(buyer, address(this), tokensSold);
+
+        emit EthPurchase(buyer, tokensSold, ethBought);
+
+        return tokensSold;
+    }
 
     function tokenToEthSwapOutput() public {}
 
