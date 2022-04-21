@@ -16,7 +16,8 @@ contract Exchange {
     );
     event Transfer(address from, address to, uint256 amount);
     event RemoveLiquidity(address from, uint256 ethAmount, uint256 tokenAmount);
-    event TokenPurchase(address buyer, uint ethSold, uint tokenBought);
+    event TokenPurchase(address buyer, uint256 ethSold, uint256 tokenBought);
+    event EthPurchase(address buyer, uint tokensSold, uint weiBought);
 
     fallback() external payable {
         // TODO: ethToTokenInput(msg.value, 1, block.timestamp, msg.sender, msg.sender);
@@ -142,43 +143,127 @@ contract Exchange {
     }
 
     /** @dev Convert ETH to tokens
-    *   @param ethSold Amount of ETH sold in wei
-    *   @param minTokens
-    *   @param deadline
-    *   @param buyer
-    *   @param receipient
-    **/
+     *   @param ethSold Amount of ETH sold in wei
+     *   @param minTokens
+     *   @param deadline
+     *   @param buyer
+     *   @param receipient
+     **/
     function ethToTokenInput(
-        uint ethSold,
-        uint minTokens,
-        uint deadline,
+        uint256 ethSold,
+        uint256 minTokens,
+        uint256 deadline,
         address buyer,
         address recipient
-    ) private returns (uint) {
+    ) private returns (uint256) {
         require(deadline > block.timestamp, "The timelimit has passed");
         require(ethSold > 0, "Invalid value for ETH amount");
         require(minTokens > 0, "Amount of tokens must be greater than 0");
 
-        uint tokenReserve = balances[address(this)]; // TODO: double check
-        uint ethBalance; //TODO: selfbalance
-        uint tokensBought = getInputPrice(ethSold, ethBalance - ethSold, tokenReserve);
-        
+        uint256 tokenReserve = balances[address(this)]; // TODO: double check
+        uint256 ethBalance; //TODO: selfbalance
+        uint256 tokensBought = getInputPrice(
+            ethSold,
+            ethBalance - ethSold,
+            tokenReserve
+        );
+
         require(tokensBought >= minTokens);
         IERC20 token = IERC20(tokenAddress);
-        token.transfer(recipient, tokensBought);
+        token.transfer(recipient, tokensBought); // TODO: double check transfer or transferFrom
 
         emit TokenPurchase(buyer, ethSold, tokensBought);
 
         return tokensBought;
     }
 
-    function ethToTokenSwap() public payable {}
+    /** @dev Convert ETH to tokens
+     **/
+    function ethToTokenSwapInput(uint256 minTokens, uint256 deadline)
+        public
+        payable
+        returns (uint256)
+    {
+        return
+            ethToTokenInput(
+                msg.value,
+                minTokens,
+                deadline,
+                msg.sender,
+                msg.sender
+            );
+    }
 
-    function ethToTokenTransferInput() public payable {}
+    /** @dev Convert ETH to tokens and transfer to recipient */
+    function ethToTokenTransferInput(
+        uint256 minTokens,
+        uint256 deadline,
+        address recipient
+    ) public payable returns (uint256) {
+        require(recipient != msg.sender, "Recipient cannot be self");
+        require(recipient != address(0), "Recipient cannot have zero address");
+        return
+            ethToTokenInput(
+                msg.value,
+                minTokens,
+                deadline,
+                msg.sender,
+                recipient
+            );
+    }
 
-    function ethToTokenSwapOutput() public payable {}
+    function ethToTokenOutput(uint tokensBought, uint maxEth, uint deadline, address buyer, address recipient) private returns(uint) {
+        require(deadline > block.timestamp, "The timelimit has passed");
+        require(maxEth > 0, "Invalid value for ETH amount");
+        require(tokensBought > 0, "Amount of tokens must be greater than 0");
 
-    function ethToTokenTransferOutput() public payable {}
+        IERC20 token = IERC20(tokenAddress);
+        uint tokenReserve = token.balanceOf(address(this));
+        uint ethSold = getOutputPrice(tokensBought, balances[address(this)] - maxEth, tokenReserve);
+
+        // Refund if ethSold > maxEth (in wei)
+        uint ethRefund = maxEth - ethSold;
+        if (ethRefund > 0) {
+            payable(buyer).transfer(ethRefund); 
+        }
+
+        token.transferFrom(address(this), recipient, tokensBought);
+
+        emit TokenPurchase(buyer, ethSold, tokensBought);
+
+        return ethSold; //TODO: double check this is in wei
+    }
+
+    /** @dev Convert ETH to tokens */
+    function ethToTokenSwapOutput(uint tokensBought, uint deadline) public payable returns (uint) {
+        return ethToTokenOutput(tokensBought, msg.value, deadline, msg.sender, msg.sender);
+    }
+
+    /** @dev Convert ETH to tokens and transfer to recipient */
+    function ethToTokenTransferOutput(uint tokensBought, uint deadline, address recipient) public payable returns (uint) {
+        require(recipient != msg.sender, "Recipient cannot be self");
+        require(recipient != address(0), "Recipient cannot have zero address");
+        return ethToTokenOutput(tokensBought, msg.value, deadline, msg.sender, recipient);
+    }
+
+    function tokenToEthInput(uint tokensSold, uint minEth, uint deadline, address buyer, address recipient) private returns(uint) {
+        require(deadline > block.timestamp, "The timelimit has passed");
+        require(minEth > 0, "Invalid value for ETH amount");
+        require(tokensSold > 0, "Amount of tokens must be greater than 0");
+
+        IERC20 token = IERC20(tokenAddress);
+        uint tokenReserve = token.balanceOf(address(this));
+        uint ethBought = getInputPrice(tokensSold, tokenReserve, balances[address(this)]);
+        uint weiBought = toWei(ethBought); // TODO
+        require(weiBought >= minEth, "ETH bought must be greater than minimum");
+        payable(recipient).transfer(weiBought);
+
+        token.transferFrom(buyer, address(this), tokensSold);
+
+        emit EthPurchase(buyer, tokensSold, weiBought);
+
+        return weiBought;
+    }
 
     function tokenToEthSwapInput() public {}
 
