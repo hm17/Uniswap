@@ -377,24 +377,87 @@ contract Exchange {
 
         return tokensSold;
     }
+    
+    /** @dev Swap token (self) to token (address) 
+    * This is not really going to work because factory is not implemented */
+    function tokenToTokenSwapOutput(uint tokensBought, uint maxTokensSold, uint maxEthSold, uint deadline, address _tokenAddress) public returns (uint) {
+        // TODO: get address exchangeAddress from factory
+        address exchangeAddress;
+        return tokenToTokenOutput(tokensBought, maxTokensSold, maxEthSold, deadline, msg.sender, msg.sender, exchangeAddress);
+    }
 
-    function tokenToTokenSwapOutput() public {}
-
+    /** @dev Swap token (self) to token (address) and transfer to recipient
+    * This is not really going to work because factory is not implemented */
     function tokenToTokenTransferOutput() public {}
 
-    function tokenToExchangeSwapInput() public {}
+    
+    /** @dev Swap token (self) to token (address) with other deployed contracts */
+    function tokenToExchangeSwapInput(uint tokensSold, uint minTokensBought, uint minEthBought, uint deadline, address exchangeAddress) public returns (uint) {
+        return tokenToTokenInput(tokensSold, minTokensBought, minEthBought, deadline, msg.sender, msg.sender, exchangeAddress);
+    }
 
-    function tokenToExchangeTransferInput() public {}
+    /** @dev Swap token (self) to token (address) with other deployed contracts 
+    *   And transfer tokens (address) to recipient */
+    function tokenToExchangeTransferInput(uint tokensSold, uint minTokensBought, uint minEthBought, uint deadline, address recipient, address exchangeAddress) public returns (uint) {
+        require(recipient != msg.sender, "Recipient cannot be self");
+        return tokenToTokenInput(tokensSold, minTokensBought, minEthBought, deadline, msg.sender, recipient, exchangeAddress);
+    }
 
-    function tokenToExchangeSwapOutput() public {}
+    /** @dev Swap token (self) to token (address) with other deployed contracts */
+    function tokenToExchangeSwapOutput(uint tokensBought, uint maxTokensSold, uint maxEthSold, uint deadline, address exchangeAddress) public returns (uint) {
+        return tokenToTokenOutput(tokensBought, maxTokensSold, maxEthSold, deadline, msg.sender, msg.sender, exchangeAddress);
+    }
 
-    function tokenToExchangeTransferOutput() public {}
+    /** @dev Swap token (self) to token (address) with other deployed contracts 
+    *   And transfer tokens (address) to recipient */
+    function tokenToExchangeTransferOutput(uint tokensBought, uint maxTokensSold, uint maxEthSold, uint deadline, address recipient, address exchangeAddress) public returns (uint){
+        require(recipient != msg.sender, "Recipient cannot be self");
+        return tokenToTokenOutput(tokensBought, maxTokensSold, maxEthSold, deadline, msg.sender, recipient, exchangeAddress);
+    }
 
-    function getEthToTokenInputPrice() public {}
+    /** @dev Price function for ETH to Token with exact input because Uniswap can act as a price oracle
+    *   @return amount of tokens that can be bought with input ETH */
+    function getEthToTokenInputPrice(uint ethSold) public returns (uint) {
+        require(ethSold > 0, "ETH sold must be greater than 0");
+        
+        IERC20 token = IERC20(tokenAddress);
+        uint tokenReserve = token.balanceOf(address(this));
 
-    function getEthToTokenOutputPrice() public {}
+        return getInputPrice(ethSold, balances[address(this)], tokenReserve);
+    }
 
-    function getTokenToEthInputPrice() public {}
+    /** @dev Price function for ETH to Token trades with exact output 
+    *   @return amount of ETH needed to buy output Tokens */
+    function getEthToTokenOutputPrice(uint tokensBought) public returns (uint) {
+        require(tokensBought > 0, "Tokens bought must be greater than 0");
 
-    function getTokenToEthOutputPrice() public {}
+        IERC20 token = IERC20(tokenAddress);
+        uint tokenReserve = token.balanceOf(address(this));
+        uint ethSold = getOutputPrice(tokensBought, balances[address(this)], tokenReserve);
+
+        return ethSold;
+    }
+
+    /** @dev Price function for token to ETH trades with exact input 
+    *   @return amount of ETH that can be bought with input tokens */
+    function getTokenToEthInputPrice(uint tokensSold) public returns (uint) {
+        require(tokensSold > 0, "Tokens sold must be greater than 0");
+
+        IERC20 token = IERC20(tokenAddress);
+        uint tokenReserve = token.balanceOf(address(this));
+
+        uint ethBought = getInputPrice(tokensSold, tokenReserve, balances[address(this)]);
+        return ethBought; // TODO: double check in wei
+    }
+
+    /** @dev Price function for token to ETH trades with exact output 
+    *   @return amount of tokens needed to buy output ETH */
+    function getTokenToEthOutputPrice(uint ethBought) public returns (uint) {
+        require(ethBought > 0, "ETH bought must be greater than 0");
+    
+        IERC20 token = IERC20(tokenAddress);
+        uint tokenReserve = token.balanceOf(address(this));
+
+        return getOutputPrice(ethBought, tokenReserve, balances[address(this)]);
+    }
 }
