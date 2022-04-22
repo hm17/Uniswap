@@ -298,13 +298,85 @@ contract Exchange {
         return tokensSold;
     }
 
-    function tokenToEthSwapOutput() public {}
+    /** @dev Convert tokens to ETH */
+    function tokenToEthSwapOutput(uint ethBought, uint maxTokens, uint deadline) public returns (uint) {
+        return tokenToEthOutput(ethBought, maxTokens, deadline, msg.sender, msg.sender);
+    }
 
-    function tokenToEthTransferOutput() public {}
+    /** @dev Convert tokens to ETH and transfer ETH  */
+    function tokenToEthTransferOutput(uint ethBought, uint maxTokens, uint deadline, address recipient) public returns (uint) {
+        require(recipient != msg.sender, "Recipient cannot be self");
+        require(recipient != address(0), "Recipient cannot have zero address");
+    
+        return tokenToEthOutput(ethBought, maxTokens, deadline, msg.sender, recipient);
+    }
 
-    function tokenToTokenSwapInput() public {}
+    function tokenToTokenInput(uint tokensSold, uint minTokensBought, uint minEthBought, uint deadline, address buyer, address recipient, address exchange) private returns (uint) {
+        require(deadline > block.timestamp, "The timelimit has passed");
+        require(tokensSold > 0, "Tokens sold must be greater than 0");
+        require(minTokensBought > 0, "Tokens bought must be greater than 0");
+        require(minEthBought > 0, "Invalid value for ETH bought");
+        require(exchange != msg.sender, "Exchange Address cannot be self");
+        require(exchange != address(0), "Exchange cannot have zero address");
 
-    function tokenToTokenTransferInput() public {}
+        IERC20 token = IERC20(tokenAddress);
+        uint tokenReserve = token.balanceOf(address(this));
+        uint ethBought = getInputPrice(tokensSold, tokenReserve, balances[address(this)]);
+
+        uint weiBought = ethBought *(10**18);
+        require(weiBought >= minEthBought, "The minimum ETH not met");
+
+        token.transferFrom(buyer, address(this), tokensSold);
+        uint tokensBought = Exchange(exchange).ethToTokenTransferInput{value: weiBought}(minTokensBought, deadline, recipient); 
+
+        emit EthPurchase(buyer, tokensSold, weiBought);
+
+        return tokensBought;
+    }
+
+    /** @dev Swap token (self) to token (address) 
+    * This is not really going to work because factory is not implemented */
+    function tokenToTokenSwapInput(uint tokensSold, uint minTokensBought, uint minEthBought, uint deadline, address _tokenAddress) public returns (uint) {
+        // TODO: get address exchangeAddress from factory
+        address exchangeAddress;
+        return tokenToTokenInput(tokensSold, minTokensBought, minEthBought, deadline, msg.sender, msg.sender, exchangeAddress);
+    }
+
+    /** @dev Swap token (self) to token (address) and transfer tokens (address) to recipient
+    * This is not really going to work because factory is not implemented */
+    function tokenToTokenTransferInput(uint tokensSold, uint minTokensBought, uint minEthBought, uint deadline, address recipient, address _tokenAddress) public returns (uint) {
+        // TODO: get address exchangeAddress from factory with _tokenAddress
+        address exchangeAddress;
+        return tokenToTokenInput(tokensSold, minTokensBought, minEthBought, deadline, msg.sender, recipient, exchangeAddress);
+    }
+
+    function tokenToTokenOutput(uint tokensBought, uint maxTokensSold, uint maxEthSold, uint deadline, address buyer, address recipient, address exchange) private returns (uint) {
+        require(deadline > block.timestamp, "The timelimit has passed");
+        require(tokensBought > 0, "Tokens bought must be greater than 0");
+        require(maxEthSold > 0, "ETH sold must be greater than 0");
+
+        require(exchange != msg.sender, "Exchange Address cannot be self");
+        require(exchange != address(0), "Exchange cannot have zero address");
+
+        uint ethBought = Exchange(exchange).getEthToTokenOutputPrice(tokensBought);
+        
+        IERC20 token = IERC20(tokenAddress);
+        uint tokenReserve = token.balanceOf(address(this));
+
+        // tokensSold > 0
+        uint tokensSold = getOutputPrice(ethBought, tokenReserve, balances[address(this)]);
+
+        require(maxTokensSold >= tokensSold, "Tokens sold is always greater than 0");
+        require(maxEthSold >= ethBought, "ETH sold needs to be greater than or equal to amount bought");
+        
+        token.transferFrom(buyer, address(this), tokensSold);
+        
+        uint ethSold = Exchange(address).ethToTokenTransferOutput{value: ethBought}(tokensBought, deadline, recipient);
+
+        emit EthPurchase(buyer, tokensSold, ethBought);
+
+        return tokensSold;
+    }
 
     function tokenToTokenSwapOutput() public {}
 
