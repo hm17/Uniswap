@@ -3,7 +3,10 @@ pragma solidity ^0.8.4;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 // @title Uniswap V1 Exchange
+// @author Hazel Madolid
 contract Exchange {
+
+    // Address of ERC20 token sold on this exchange
     address public tokenAddress;
 
     uint256 public totalSupply;
@@ -20,15 +23,25 @@ contract Exchange {
     event EthPurchase(address buyer, uint tokensSold, uint weiBought);
 
     fallback() external payable {
-        // TODO: ethToTokenInput(msg.value, 1, block.timestamp, msg.sender, msg.sender);
+        ethToTokenInput(msg.value, 1, block.timestamp, msg.sender, msg.sender);
     }
 
     /** @dev Instead of setUp function, use constructor
      *   @param _tokenAddress Address of ERC20 token sold on exchange
      **/
     constructor(address _tokenAddress) {
-        require(_tokenAddress != address(0), "Token Address is not valid.");
+        require(_tokenAddress != address(0), "Token address is not valid.");
         tokenAddress = _tokenAddress;
+    }
+
+    /** @dev Returns the token balance of the Exchange */
+    function getReserve() public view returns(uint) {
+        return IERC20(tokenAddress).balanceOf(address(this));
+    }
+
+    function transferTokens(address from, address to, uint tokenAmount) private {
+        IERC20 token = IERC20(tokenAddress);
+        token.transferFrom(msg.sender, address(this), tokenAmount);
     }
 
     /** @dev Add liquidity within the bounds and emit Add and Transfer events
@@ -48,8 +61,7 @@ contract Exchange {
 
         uint256 totalLiquidity = totalSupply;
         uint256 ethReserve = balances[address(this)] - msg.value;
-        IERC20 token = IERC20(tokenAddress);
-        uint256 tokenReserve = token.balanceOf(address(this));
+        uint256 tokenReserve = getReserve();
         uint256 tokenAmount = (msg.value * tokenReserve) / ethReserve + 1;
         uint256 liquidityMinted = (msg.value * totalLiquidity) / ethReserve;
         require(maxTokens >= tokenAmount, "Exceeds maximum limit");
@@ -59,7 +71,7 @@ contract Exchange {
         );
         balances[msg.sender] += liquidityMinted;
         totalSupply = totalLiquidity + minLiquidity; // TODO: Use SafeMath?
-        token.transferFrom(msg.sender, address(this), tokenAmount);
+        transferTokens(msg.sender, address(this), tokenAmount);
 
         emit AddLiquidity(msg.sender, msg.value, tokenAmount);
         emit Transfer(tokenAddress, msg.sender, liquidityMinted);
@@ -87,8 +99,7 @@ contract Exchange {
 
         uint256 totalLiquidity = totalSupply;
         require(totalLiquidity > 0, "There is no liquidity to remove");
-        IERC20 token = IERC20(tokenAddress);
-        uint256 tokenReserve = token.balanceOf(address(this));
+        uint256 tokenReserve = getReserve();
         uint256 ethAmount = (amount * balances[address(this)]) / totalLiquidity; // TODO: Should this balance be a separate variable for ETH from tokens balance?
         uint256 tokenAmount = (amount * tokenReserve) / totalLiquidity;
         require(ethAmount >= minEth, "Minimum ETH amount not met");
@@ -96,7 +107,7 @@ contract Exchange {
         balances[msg.sender] -= amount;
         totalSupply = totalLiquidity - amount;
         payable(msg.sender).transfer(ethAmount);
-        token.transferFrom(msg.sender, address(this), tokenAmount);
+        transferTokens(msg.sender, address(this), tokenAmount);
 
         emit RemoveLiquidity(msg.sender, ethAmount, tokenAmount);
         emit Transfer(tokenAddress, msg.sender, amount);
@@ -142,13 +153,6 @@ contract Exchange {
         return numerator / denominator + 1;
     }
 
-    /** @dev Convert ETH to tokens
-     *   @param ethSold Amount of ETH sold in wei
-     *   @param minTokens
-     *   @param deadline
-     *   @param buyer
-     *   @param receipient
-     **/
     function ethToTokenInput(
         uint256 ethSold,
         uint256 minTokens,
@@ -160,8 +164,8 @@ contract Exchange {
         require(ethSold > 0, "Invalid value for ETH amount");
         require(minTokens > 0, "Amount of tokens must be greater than 0");
 
-        uint256 tokenReserve = balances[address(this)]; // TODO: double check
-        uint256 ethBalance; //TODO: selfbalance
+        uint256 tokenReserve = getReserve();
+        uint256 ethBalance; //TODO: selfbalance balances[address(this)]; 
         uint256 tokensBought = getInputPrice(
             ethSold,
             ethBalance - ethSold,
@@ -169,8 +173,7 @@ contract Exchange {
         );
 
         require(tokensBought >= minTokens);
-        IERC20 token = IERC20(tokenAddress);
-        token.transfer(recipient, tokensBought); // TODO: double check transfer or transferFrom
+        transferTokens(msg.sender, recipient, tokensBought); // TODO: double check is from buyer or msg.sender?
 
         emit TokenPurchase(buyer, ethSold, tokensBought);
 
@@ -217,8 +220,7 @@ contract Exchange {
         require(maxEth > 0, "Invalid value for ETH amount");
         require(tokensBought > 0, "Amount of tokens must be greater than 0");
 
-        IERC20 token = IERC20(tokenAddress);
-        uint tokenReserve = token.balanceOf(address(this));
+        uint tokenReserve = getReserve();
         uint ethSold = getOutputPrice(tokensBought, balances[address(this)] - maxEth, tokenReserve);
 
         // Refund if ethSold > maxEth (in wei)
@@ -227,7 +229,7 @@ contract Exchange {
             payable(buyer).transfer(ethRefund); 
         }
 
-        token.transferFrom(address(this), recipient, tokensBought);
+        transferTokens(address(this), recipient, tokensBought);
 
         emit TokenPurchase(buyer, ethSold, tokensBought);
 
@@ -251,14 +253,13 @@ contract Exchange {
         require(minEth > 0, "Invalid value for ETH amount");
         require(tokensSold > 0, "Amount of tokens must be greater than 0");
 
-        IERC20 token = IERC20(tokenAddress);
-        uint tokenReserve = token.balanceOf(address(this));
+        uint tokenReserve = getReserve();
         uint ethBought = getInputPrice(tokensSold, tokenReserve, balances[address(this)]);
         uint weiBought = toWei(ethBought); // TODO
         require(weiBought >= minEth, "ETH bought must be greater than minimum");
         payable(recipient).transfer(weiBought);
 
-        token.transferFrom(buyer, address(this), tokensSold);
+        transferTokens(buyer, address(this), tokensSold);
 
         emit EthPurchase(buyer, tokensSold, weiBought);
 
@@ -282,8 +283,7 @@ contract Exchange {
         require(deadline > block.timestamp, "The timelimit has passed");
         require(ethBought > 0, "Invalid value for ETH bought");
 
-        IERC20 token = IERC20(tokenAddress);
-        uint tokenReserve = token.balanceOf(address(this));
+        uint tokenReserve = getReserve();
 
         uint tokensSold = getOutputPrice(ethBought, tokenReserve, balances[(address(this))]);
 
@@ -291,7 +291,7 @@ contract Exchange {
 
         payable(recipient).send(ethBought); //TODO: use send or transfer? (check out other instances in code)
 
-        token.transferFrom(buyer, address(this), tokensSold);
+        transferTokens(buyer, address(this), tokensSold);
 
         emit EthPurchase(buyer, tokensSold, ethBought);
 
@@ -319,14 +319,13 @@ contract Exchange {
         require(exchange != msg.sender, "Exchange Address cannot be self");
         require(exchange != address(0), "Exchange cannot have zero address");
 
-        IERC20 token = IERC20(tokenAddress);
-        uint tokenReserve = token.balanceOf(address(this));
+        uint tokenReserve = getReserve();
         uint ethBought = getInputPrice(tokensSold, tokenReserve, balances[address(this)]);
 
         uint weiBought = ethBought *(10**18);
         require(weiBought >= minEthBought, "The minimum ETH not met");
 
-        token.transferFrom(buyer, address(this), tokensSold);
+        transferTokens(buyer, address(this), tokensSold);
         uint tokensBought = Exchange(exchange).ethToTokenTransferInput{value: weiBought}(minTokensBought, deadline, recipient); 
 
         emit EthPurchase(buyer, tokensSold, weiBought);
@@ -360,8 +359,7 @@ contract Exchange {
 
         uint ethBought = Exchange(exchange).getEthToTokenOutputPrice(tokensBought);
         
-        IERC20 token = IERC20(tokenAddress);
-        uint tokenReserve = token.balanceOf(address(this));
+        uint tokenReserve = getReserve();
 
         // tokensSold > 0
         uint tokensSold = getOutputPrice(ethBought, tokenReserve, balances[address(this)]);
@@ -369,7 +367,7 @@ contract Exchange {
         require(maxTokensSold >= tokensSold, "Tokens sold is always greater than 0");
         require(maxEthSold >= ethBought, "ETH sold needs to be greater than or equal to amount bought");
         
-        token.transferFrom(buyer, address(this), tokensSold);
+        transferTokens(buyer, address(this), tokensSold);
         
         uint ethSold = Exchange(address).ethToTokenTransferOutput{value: ethBought}(tokensBought, deadline, recipient);
 
@@ -420,8 +418,7 @@ contract Exchange {
     function getEthToTokenInputPrice(uint ethSold) public returns (uint) {
         require(ethSold > 0, "ETH sold must be greater than 0");
         
-        IERC20 token = IERC20(tokenAddress);
-        uint tokenReserve = token.balanceOf(address(this));
+        uint tokenReserve = getReserve();
 
         return getInputPrice(ethSold, balances[address(this)], tokenReserve);
     }
@@ -431,8 +428,7 @@ contract Exchange {
     function getEthToTokenOutputPrice(uint tokensBought) public returns (uint) {
         require(tokensBought > 0, "Tokens bought must be greater than 0");
 
-        IERC20 token = IERC20(tokenAddress);
-        uint tokenReserve = token.balanceOf(address(this));
+        uint tokenReserve = getReserve();
         uint ethSold = getOutputPrice(tokensBought, balances[address(this)], tokenReserve);
 
         return ethSold;
@@ -443,8 +439,7 @@ contract Exchange {
     function getTokenToEthInputPrice(uint tokensSold) public returns (uint) {
         require(tokensSold > 0, "Tokens sold must be greater than 0");
 
-        IERC20 token = IERC20(tokenAddress);
-        uint tokenReserve = token.balanceOf(address(this));
+        uint tokenReserve = getReserve();
 
         uint ethBought = getInputPrice(tokensSold, tokenReserve, balances[address(this)]);
         return ethBought; // TODO: double check in wei
@@ -455,8 +450,7 @@ contract Exchange {
     function getTokenToEthOutputPrice(uint ethBought) public returns (uint) {
         require(ethBought > 0, "ETH bought must be greater than 0");
     
-        IERC20 token = IERC20(tokenAddress);
-        uint tokenReserve = token.balanceOf(address(this));
+        uint tokenReserve = getReserve();
 
         return getOutputPrice(ethBought, tokenReserve, balances[address(this)]);
     }
