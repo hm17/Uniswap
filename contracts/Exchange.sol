@@ -45,12 +45,12 @@ contract Exchange {
         uint256 tokenAmount
     ) private {
         IERC20 token = IERC20(tokenAddress);
-        token.transferFrom(msg.sender, address(this), tokenAmount);
+        token.transferFrom(from, to, tokenAmount);
     }
 
-    /** @dev Add liquidity and receive liquidity tokens
-     *   @param minLiquidity Minimum liquidity minted
-     *   @param maxTokens Max UNI minted added
+    /** @dev Add ETH and ERC20 tokens and receive liquidity tokens
+     *   @param minLiquidity Minimum liquidity tokens (UNI) minted
+     *   @param maxTokens Max amount of ERC20 tokens added
      *   @param deadline Transaction deadline
      *   @return uint The amount of UNI tokens minted
      **/
@@ -63,26 +63,44 @@ contract Exchange {
         require(maxTokens > 0, "Number of tokens invalid");
         require(msg.value > 0, "ETH not sent");
 
-        // Mint liquidity tokens in proportion to ETH and token added.
         uint256 totalLiquidity = totalSupply;
-        uint256 ethReserve = address(this).balance - msg.value;
-        uint256 tokenReserve = getReserve();
-        uint256 tokenAmount = (msg.value * tokenReserve) / ethReserve + 1;
-        uint256 liquidityMinted = (msg.value * totalLiquidity) / ethReserve;
-        require(maxTokens >= tokenAmount, "Exceeds maximum limit");
-        require(
-            liquidityMinted >= minLiquidity,
-            "The minimum liquidy amount is not met"
-        );
-        balances[msg.sender] += liquidityMinted;
-        totalSupply = totalLiquidity + minLiquidity; // TODO: Use SafeMath?
+        // Existing liquidity
+        if (totalLiquidity > 0) {
+            // Mint liquidity tokens in proportion to ETH and tokens added.
+            uint256 ethReserve = address(this).balance - msg.value;
+            uint256 tokenReserve = getReserve();
+            uint256 tokenAmount = (msg.value * tokenReserve) / ethReserve + 1;
+            uint256 liquidityMinted = (msg.value * totalLiquidity) / ethReserve;
+            require(maxTokens >= tokenAmount, "Exceeds maximum limit");
+            require(
+                liquidityMinted >= minLiquidity,
+                "The minimum liquidy amount is not met"
+            );
+            balances[msg.sender] += liquidityMinted;
+            totalSupply = totalLiquidity + minLiquidity; // TODO: Use SafeMath?
 
-        transferTokens(msg.sender, address(this), tokenAmount);
+            transferTokens(msg.sender, address(this), tokenAmount);
 
-        emit AddLiquidity(msg.sender, msg.value, tokenAmount);
-        emit Transfer(tokenAddress, msg.sender, liquidityMinted);
+            emit AddLiquidity(msg.sender, msg.value, tokenAmount);
+            emit Transfer(tokenAddress, msg.sender, liquidityMinted);
 
-        return liquidityMinted;
+            return liquidityMinted;
+        } else {
+            // New exchange 
+            require(tokenAddress != address(0), "Token address is not valid");
+            require(msg.value >= 1000000000, "ETH amount not paid");
+            uint tokenAmount = maxTokens;
+            uint initialLiquidity = getReserve();
+            totalSupply = initialLiquidity;
+            balances[msg.sender] = initialLiquidity;
+
+            transferTokens(msg.sender, address(this), tokenAmount);
+
+            emit AddLiquidity(msg.sender, msg.value, tokenAmount);
+            emit Transfer(address(0), msg.sender, initialLiquidity);
+            
+            return initialLiquidity;
+        }
     }
 
     /** @dev Burn tokens when removing liquidity
