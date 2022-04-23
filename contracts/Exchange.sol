@@ -477,53 +477,6 @@ contract Exchange is ERC20 {
         return tokensBought;
     }
 
-    /** @dev Swap token (self) to token (address)
-     * This is not really going to work because factory is not implemented */
-    function tokenToTokenSwapInput(
-        uint256 tokensSold,
-        uint256 minTokensBought,
-        uint256 minEthBought,
-        uint256 deadline,
-        address _tokenAddress
-    ) public returns (uint256) {
-        // TODO: get address exchangeAddress from factory
-        address exchangeAddress;
-        return
-            tokenToTokenInput(
-                tokensSold,
-                minTokensBought,
-                minEthBought,
-                deadline,
-                msg.sender,
-                msg.sender,
-                payable(exchangeAddress)
-            );
-    }
-
-    /** @dev Swap token (self) to token (address) and transfer tokens (address) to recipient
-     * This is not really going to work because factory is not implemented */
-    function tokenToTokenTransferInput(
-        uint256 tokensSold,
-        uint256 minTokensBought,
-        uint256 minEthBought,
-        uint256 deadline,
-        address recipient,
-        address _tokenAddress
-    ) public returns (uint256) {
-        // TODO: get address exchangeAddress from factory with _tokenAddress
-        address exchangeAddress;
-        return
-            tokenToTokenInput(
-                tokensSold,
-                minTokensBought,
-                minEthBought,
-                deadline,
-                msg.sender,
-                recipient,
-                payable(exchangeAddress)
-            );
-    }
-
     function tokenToTokenOutput(
         uint256 tokensBought,
         uint256 maxTokensSold,
@@ -572,33 +525,6 @@ contract Exchange is ERC20 {
 
         return tokensSold;
     }
-
-    /** @dev Swap token (self) to token (address)
-     * This is not really going to work because factory is not implemented */
-    function tokenToTokenSwapOutput(
-        uint256 tokensBought,
-        uint256 maxTokensSold,
-        uint256 maxEthSold,
-        uint256 deadline,
-        address _tokenAddress
-    ) public returns (uint256) {
-        // TODO: get address exchangeAddress from factory
-        address payable exchangeAddress;
-        return
-            tokenToTokenOutput(
-                tokensBought,
-                maxTokensSold,
-                maxEthSold,
-                deadline,
-                msg.sender,
-                msg.sender,
-                exchangeAddress
-            );
-    }
-
-    /** @dev Swap token (self) to token (address) and transfer to recipient
-     * This is not really going to work because factory is not implemented */
-    function tokenToTokenTransferOutput() public {}
 
     /** @dev Swap token (self) to token (address) with other deployed contracts */
     function tokenToExchangeSwapInput(
