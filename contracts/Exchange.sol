@@ -2,22 +2,22 @@
 pragma solidity ^0.8.4;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 // @title Uniswap V1 Exchange
 // @author Hazel Madolid
-contract Exchange {
+contract Exchange is ERC20 {
     // Address of ERC20 token sold on this exchange
     address public tokenAddress;
 
-    uint256 public totalSupply;
-    mapping(address => uint256) public balances; // liquidity token balances
+    //mapping(address => uint256) public balances; // liquidity token balances
 
     event AddLiquidity(
         address provider,
         uint256 ethAmount,
         uint256 tokenAmount
     );
-    event Transfer(address from, address to, uint256 amount);
+
     event RemoveLiquidity(address from, uint256 ethAmount, uint256 tokenAmount);
     event TokenPurchase(address buyer, uint256 ethSold, uint256 tokenBought);
     event EthPurchase(address buyer, uint256 tokensSold, uint256 weiBought);
@@ -26,10 +26,10 @@ contract Exchange {
         ethToTokenInput(msg.value, 1, block.timestamp, msg.sender, msg.sender);
     }
 
-    /** @dev Instead of setUp function, use constructor
+    /** 
      *   @param _tokenAddress Address of ERC20 token sold on exchange
      **/
-    constructor(address _tokenAddress) {
+    constructor(address _tokenAddress) ERC20("Uniswap-V1", "UNI-V1") {
         require(_tokenAddress != address(0), "Token address is not valid.");
         tokenAddress = _tokenAddress;
     }
@@ -63,7 +63,8 @@ contract Exchange {
         require(maxTokens > 0, "Number of tokens invalid");
         require(msg.value > 0, "ETH not sent");
 
-        uint256 totalLiquidity = totalSupply;
+        uint256 totalLiquidity = totalSupply();
+        
         // Existing liquidity
         if (totalLiquidity > 0) {
             // Mint liquidity tokens in proportion to ETH and tokens added.
@@ -76,29 +77,27 @@ contract Exchange {
                 liquidityMinted >= minLiquidity,
                 "The minimum liquidy amount is not met"
             );
-            balances[msg.sender] += liquidityMinted;
-            totalSupply = totalLiquidity + minLiquidity; // TODO: Use SafeMath?
+            _mint(msg.sender, totalLiquidity + minLiquidity);
 
             transferTokens(msg.sender, address(this), tokenAmount);
 
             emit AddLiquidity(msg.sender, msg.value, tokenAmount);
-            emit Transfer(tokenAddress, msg.sender, liquidityMinted);
 
             return liquidityMinted;
         } else {
             // New exchange 
             require(tokenAddress != address(0), "Token address is not valid");
             require(msg.value >= 1000000000, "ETH amount not paid");
-            uint tokenAmount = maxTokens;
-            uint initialLiquidity = getReserve();
-            totalSupply = initialLiquidity;
-            balances[msg.sender] = initialLiquidity;
 
+            uint tokenAmount = maxTokens;
             transferTokens(msg.sender, address(this), tokenAmount);
 
+            // Initial liqudity based off of ETH reserve
+            uint initialLiquidity = address(this).balance;
+            _mint(msg.sender, initialLiquidity);
+
             emit AddLiquidity(msg.sender, msg.value, tokenAmount);
-            emit Transfer(address(0), msg.sender, initialLiquidity);
-            
+
             return initialLiquidity;
         }
     }
@@ -117,27 +116,27 @@ contract Exchange {
         uint256 minTokens,
         uint256 deadline
     ) public returns (uint256, uint256) {
-        require(amount > 0, "Burn amount must be greater than 0");
+        require(amount > 0, "Amount must be greater than 0");
         require(deadline > block.timestamp, "The timelimit has passed");
         require(minEth > 0, "ETH amount must be greater than 0");
 
-        uint256 totalLiquidity = totalSupply;
+        uint256 totalLiquidity = totalSupply();
         require(totalLiquidity > 0, "There is no liquidity to remove");
-        uint256 tokenReserve = getReserve();
+
         uint256 ethAmount = (amount * address(this).balance) / totalLiquidity;
-        uint256 tokenAmount = (amount * tokenReserve) / totalLiquidity;
         require(ethAmount >= minEth, "Minimum ETH amount not met");
+
+        uint256 tokenAmount = (amount * getReserve()) / totalLiquidity;
         require(tokenAmount >= minTokens, "Minimum token amount not met");
 
         // Burn liquidity tokens
-        balances[msg.sender] -= amount;
-        totalSupply = totalLiquidity - amount;
+        _burn(msg.sender, amount);
 
+        // Both ETH and tokens are returned
         payable(msg.sender).transfer(ethAmount);
-        transferTokens(msg.sender, address(this), tokenAmount);
+        IERC20(tokenAddress).transfer(msg.sender, tokenAmount);
 
         emit RemoveLiquidity(msg.sender, ethAmount, tokenAmount);
-        emit Transfer(tokenAddress, msg.sender, amount);
 
         return (ethAmount, tokenAmount);
     }
@@ -153,10 +152,9 @@ contract Exchange {
         uint256 inputReserve,
         uint256 outputReserve
     ) private pure returns (uint256) {
-        require(inputReserve > 0, "Not enough in reserves");
-        require(outputReserve > 0, "Not enough in reserves");
+        require(inputReserve > 0 && outputReserve > 0, "Not enough in reserves");
 
-        uint256 inputAmountWithFee = inputAmount * 997;
+        uint256 inputAmountWithFee = inputAmount * 997; // 0.03% Fee
         uint256 numerator = inputAmountWithFee * outputReserve;
         uint256 denominator = (inputReserve * 1000) + inputAmountWithFee;
         return numerator / denominator;
@@ -173,8 +171,7 @@ contract Exchange {
         uint256 inputReserve,
         uint256 outputReserve
     ) private pure returns (uint256) {
-        require(inputReserve > 0, "Not enough in reserves");
-        require(outputReserve > 0, "Not enough in reserves");
+        require(inputReserve > 0 && outputReserve > 0, "Not enough in reserves");
         uint256 numerator = inputReserve * outputReserve * 1000;
         uint256 denominator = (outputReserve - outputAmount) * 997;
         return numerator / denominator + 1;
