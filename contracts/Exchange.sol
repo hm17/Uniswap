@@ -3,14 +3,15 @@ pragma solidity ^0.8.4;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "./SafeMath.sol";
 
 // @title Uniswap V1 Exchange
 // @author Hazel Madolid
 contract Exchange is ERC20 {
-    // Address of ERC20 token sold on this exchange
-    address public tokenAddress;
+    using SafeMath for uint256;
 
-    //mapping(address => uint256) public balances; // liquidity token balances
+    // Address of ERC20 token sold on this exchange
+    address public token;
 
     event AddLiquidity(
         address provider,
@@ -26,26 +27,26 @@ contract Exchange is ERC20 {
         ethToTokenInput(msg.value, 1, block.timestamp, msg.sender, msg.sender);
     }
 
-    /** 
-     *   @param _tokenAddress Address of ERC20 token sold on exchange
+    /**
+     *   @param tokenAddress Address of ERC20 token sold on exchange
      **/
-    constructor(address _tokenAddress) ERC20("Uniswap-V1", "UNI-V1") {
-        require(_tokenAddress != address(0), "Token address is not valid.");
-        tokenAddress = _tokenAddress;
+    constructor(address tokenAddress) ERC20("Uniswap-V1", "UNI-V1") {
+        require(tokenAddress != address(0), "Token address is not valid.");
+        token = tokenAddress;
     }
 
-    /** @dev Returns the token balance of the Exchange */
-    function getReserve() public view returns (uint256) {
-        return IERC20(tokenAddress).balanceOf(address(this));
+    /** @dev Get traded ERC20 balance of account */
+    function getReserve(address account) private view returns (uint256) {
+        return IERC20(token).balanceOf(account);
     }
 
-    function transferTokens(
+    /** @dev Call traded ERC20 transferFrom, make sure Exchange is approved first */
+    function transferTokensFrom(
         address from,
         address to,
-        uint256 tokenAmount
+        uint256 amount
     ) private {
-        IERC20 token = IERC20(tokenAddress);
-        token.transferFrom(from, to, tokenAmount);
+        IERC20(token).transferFrom(from, to, amount);
     }
 
     /** @dev Add ETH and ERC20 tokens and receive liquidity tokens
@@ -64,37 +65,40 @@ contract Exchange is ERC20 {
         require(msg.value > 0, "ETH not sent");
 
         uint256 totalLiquidity = totalSupply();
-        
+
         // Existing liquidity
         if (totalLiquidity > 0) {
+            require(minLiquidity > 0, "Invalid value for min liquidity");
+
             // Mint liquidity tokens in proportion to ETH and tokens added.
             uint256 ethReserve = address(this).balance - msg.value;
-            uint256 tokenReserve = getReserve();
+            uint256 tokenReserve = getReserve(address(this));
             uint256 tokenAmount = (msg.value * tokenReserve) / ethReserve + 1;
             uint256 liquidityMinted = (msg.value * totalLiquidity) / ethReserve;
-            require(maxTokens >= tokenAmount, "Exceeds maximum limit");
+
+            require(maxTokens >= tokenAmount, "Token amount exceeds max");
             require(
                 liquidityMinted >= minLiquidity,
-                "The minimum liquidy amount is not met"
+                "The liquidity minted is less than the min"
             );
-            _mint(msg.sender, totalLiquidity + minLiquidity);
+            _mint(msg.sender, minLiquidity);
 
-            transferTokens(msg.sender, address(this), tokenAmount);
+            transferTokensFrom(msg.sender, address(this), tokenAmount);
 
             emit AddLiquidity(msg.sender, msg.value, tokenAmount);
 
             return liquidityMinted;
         } else {
-            // New exchange 
-            require(tokenAddress != address(0), "Token address is not valid");
+            // New exchange
             require(msg.value >= 1000000000, "ETH amount not paid");
 
-            uint tokenAmount = maxTokens;
-            transferTokens(msg.sender, address(this), tokenAmount);
+            uint256 tokenAmount = maxTokens;
 
             // Initial liqudity based off of ETH reserve
-            uint initialLiquidity = address(this).balance;
+            uint256 initialLiquidity = address(this).balance;
             _mint(msg.sender, initialLiquidity);
+
+            transferTokensFrom(msg.sender, address(this), tokenAmount);
 
             emit AddLiquidity(msg.sender, msg.value, tokenAmount);
 
@@ -102,7 +106,7 @@ contract Exchange is ERC20 {
         }
     }
 
-    /** @dev Burn tokens when removing liquidity
+    /** @dev Burn UNI when removing liquidity
      *   @param amount The burn amount of UNI
      *   @param minEth   Minimum ETH removed
      *   @param minTokens Minimum ERC20 tokens removed
@@ -123,10 +127,11 @@ contract Exchange is ERC20 {
         uint256 totalLiquidity = totalSupply();
         require(totalLiquidity > 0, "There is no liquidity to remove");
 
+        uint256 tokenReserve = getReserve(address(this));
         uint256 ethAmount = (amount * address(this).balance) / totalLiquidity;
-        require(ethAmount >= minEth, "Minimum ETH amount not met");
+        uint256 tokenAmount = (amount * tokenReserve) / totalLiquidity;
 
-        uint256 tokenAmount = (amount * getReserve()) / totalLiquidity;
+        require(ethAmount >= minEth, "Minimum ETH amount not met");
         require(tokenAmount >= minTokens, "Minimum token amount not met");
 
         // Burn liquidity tokens
@@ -134,7 +139,7 @@ contract Exchange is ERC20 {
 
         // Both ETH and tokens are returned
         payable(msg.sender).transfer(ethAmount);
-        IERC20(tokenAddress).transfer(msg.sender, tokenAmount);
+        transferTokensFrom(address(this), msg.sender, tokenAmount);
 
         emit RemoveLiquidity(msg.sender, ethAmount, tokenAmount);
 
@@ -152,9 +157,12 @@ contract Exchange is ERC20 {
         uint256 inputReserve,
         uint256 outputReserve
     ) private pure returns (uint256) {
-        require(inputReserve > 0 && outputReserve > 0, "Not enough in reserves");
+        require(
+            inputReserve > 0 && outputReserve > 0,
+            "Not enough in reserves"
+        );
 
-        uint256 inputAmountWithFee = inputAmount * 997; // 0.03% Fee
+        uint256 inputAmountWithFee = inputAmount * 997; // 0.30% Fee
         uint256 numerator = inputAmountWithFee * outputReserve;
         uint256 denominator = (inputReserve * 1000) + inputAmountWithFee;
         return numerator / denominator;
@@ -171,7 +179,10 @@ contract Exchange is ERC20 {
         uint256 inputReserve,
         uint256 outputReserve
     ) private pure returns (uint256) {
-        require(inputReserve > 0 && outputReserve > 0, "Not enough in reserves");
+        require(
+            inputReserve > 0 && outputReserve > 0,
+            "Not enough in reserves"
+        );
         uint256 numerator = inputReserve * outputReserve * 1000;
         uint256 denominator = (outputReserve - outputAmount) * 997;
         return numerator / denominator + 1;
@@ -188,21 +199,15 @@ contract Exchange is ERC20 {
         require(ethSold > 0, "Invalid value for ETH amount");
         require(minTokens > 0, "Amount of tokens must be greater than 0");
 
-        uint256 tokenReserve = getReserve();
-        uint256 ethBalance = address(this).balance;
-        uint256 tokensBought = getInputPrice(
-            ethSold,
-            ethBalance - ethSold,
-            tokenReserve
-        );
+        uint256 tokenReserve = getReserve(address(this));
+        uint256 tokensBought = getInputPrice(ethSold, address(this).balance - ethSold, tokenReserve);
 
         require(
             tokensBought >= minTokens,
             "Tokens bought less than amount expected"
         );
 
-        IERC20 token = IERC20(tokenAddress);
-        token.transfer(recipient, tokensBought);
+        transferTokensFrom(address(this), recipient, tokensBought); //TODO: Double check from is exchange and not msg.sender
 
         emit TokenPurchase(buyer, ethSold, tokensBought);
 
@@ -255,7 +260,7 @@ contract Exchange is ERC20 {
         require(maxEth > 0, "Invalid value for ETH amount");
         require(tokensBought > 0, "Amount of tokens must be greater than 0");
 
-        uint256 tokenReserve = getReserve();
+        uint256 tokenReserve = getReserve(address(this));
         uint256 ethSold = getOutputPrice(
             tokensBought,
             address(this).balance - maxEth,
@@ -268,11 +273,11 @@ contract Exchange is ERC20 {
             payable(buyer).transfer(ethRefund);
         }
 
-        transferTokens(address(this), recipient, tokensBought);
+        transferTokensFrom(address(this), recipient, tokensBought);
 
         emit TokenPurchase(buyer, ethSold, tokensBought);
 
-        return ethSold; //TODO: double check this is in wei
+        return ethSold * (10**18); //TODO: double check this is in wei
     }
 
     /** @dev Convert ETH to tokens */
@@ -320,7 +325,7 @@ contract Exchange is ERC20 {
         require(minEth > 0, "Invalid value for ETH amount");
         require(tokensSold > 0, "Amount of tokens must be greater than 0");
 
-        uint256 tokenReserve = getReserve();
+        uint256 tokenReserve = getReserve(address(this));
         uint256 ethBought = getInputPrice(
             tokensSold,
             tokenReserve,
@@ -330,7 +335,7 @@ contract Exchange is ERC20 {
         require(weiBought >= minEth, "ETH bought must be greater than minimum");
         payable(recipient).transfer(weiBought);
 
-        transferTokens(buyer, address(this), tokensSold);
+        transferTokensFrom(buyer, address(this), tokensSold);
 
         emit EthPurchase(buyer, tokensSold, weiBought);
 
@@ -383,7 +388,7 @@ contract Exchange is ERC20 {
         require(deadline > block.timestamp, "The timelimit has passed");
         require(ethBought > 0, "Invalid value for ETH bought");
 
-        uint256 tokenReserve = getReserve();
+        uint256 tokenReserve = getReserve(address(this));
 
         uint256 tokensSold = getOutputPrice(
             ethBought,
@@ -396,7 +401,7 @@ contract Exchange is ERC20 {
         // Send ETH to recipient
         payable(recipient).transfer(ethBought);
 
-        transferTokens(buyer, address(this), tokensSold);
+        transferTokensFrom(buyer, address(this), tokensSold);
 
         emit EthPurchase(buyer, tokensSold, ethBought);
 
@@ -455,7 +460,7 @@ contract Exchange is ERC20 {
         require(exchange != msg.sender, "Exchange Address cannot be self");
         require(exchange != address(0), "Exchange cannot have zero address");
 
-        uint256 tokenReserve = getReserve();
+        uint256 tokenReserve = getReserve(address(this));
         uint256 ethBought = getInputPrice(
             tokensSold,
             tokenReserve,
@@ -465,7 +470,7 @@ contract Exchange is ERC20 {
         uint256 weiBought = ethBought * (10**18);
         require(weiBought >= minEthBought, "The minimum ETH not met");
 
-        transferTokens(buyer, address(this), tokensSold);
+        transferTokensFrom(buyer, address(this), tokensSold);
 
         // Send message to deployed contract given exchange address
         uint256 tokensBought = Exchange(exchange).ethToTokenTransferInput{
@@ -497,7 +502,7 @@ contract Exchange is ERC20 {
             tokensBought
         );
 
-        uint256 tokenReserve = getReserve();
+        uint256 tokenReserve = getReserve(address(this));
 
         // tokensSold > 0
         uint256 tokensSold = getOutputPrice(
@@ -515,7 +520,7 @@ contract Exchange is ERC20 {
             "ETH sold needs to be greater than or equal to amount bought"
         );
 
-        transferTokens(buyer, address(this), tokensSold);
+        transferTokensFrom(buyer, address(this), tokensSold);
 
         uint256 ethSold = Exchange(exchange).ethToTokenTransferOutput{
             value: ethBought
@@ -621,7 +626,7 @@ contract Exchange is ERC20 {
     {
         require(ethSold > 0, "ETH sold must be greater than 0");
 
-        uint256 tokenReserve = getReserve();
+        uint256 tokenReserve = getReserve(address(this));
 
         return getInputPrice(ethSold, address(this).balance, tokenReserve);
     }
@@ -635,7 +640,7 @@ contract Exchange is ERC20 {
     {
         require(tokensBought > 0, "Tokens bought must be greater than 0");
 
-        uint256 tokenReserve = getReserve();
+        uint256 tokenReserve = getReserve(address(this));
         uint256 ethSold = getOutputPrice(
             tokensBought,
             address(this).balance,
@@ -654,7 +659,7 @@ contract Exchange is ERC20 {
     {
         require(tokensSold > 0, "Tokens sold must be greater than 0");
 
-        uint256 tokenReserve = getReserve();
+        uint256 tokenReserve = getReserve(address(this));
 
         uint256 ethBought = getInputPrice(
             tokensSold,
@@ -673,7 +678,7 @@ contract Exchange is ERC20 {
     {
         require(ethBought > 0, "ETH bought must be greater than 0");
 
-        uint256 tokenReserve = getReserve();
+        uint256 tokenReserve = getReserve(address(this));
 
         return getOutputPrice(ethBought, tokenReserve, address(this).balance);
     }
