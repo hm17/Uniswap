@@ -124,14 +124,20 @@ contract Exchange is ERC20 {
         require(deadline > block.timestamp, "The timelimit has passed");
         require(minEth > 0, "ETH amount must be greater than 0");
 
+        // ETH needs to be calculated in wei
+        uint256 minEthWei = minEth * (10**18);
+
         uint256 totalLiquidity = totalSupply();
         require(totalLiquidity > 0, "There is no liquidity to remove");
 
         uint256 tokenReserve = getReserve(address(this));
-        uint256 ethAmount = (amount * address(this).balance) / totalLiquidity;
-        uint256 tokenAmount = (amount * tokenReserve) / totalLiquidity;
+        uint256 ethAmount = (amount.mul(address(this).balance)).div(
+            totalLiquidity
+        );
+        uint256 ethAmountWei = ethAmount.mul(10**18);
+        uint256 tokenAmount = (amount.mul(tokenReserve)).div(totalLiquidity);
 
-        require(ethAmount >= minEth, "Minimum ETH amount not met");
+        require(ethAmountWei >= minEthWei, "Minimum ETH amount not met");
         require(tokenAmount >= minTokens, "Minimum token amount not met");
 
         // Burn liquidity tokens
@@ -143,7 +149,7 @@ contract Exchange is ERC20 {
 
         emit RemoveLiquidity(msg.sender, ethAmount, tokenAmount);
 
-        return (ethAmount, tokenAmount);
+        return (ethAmountWei, tokenAmount);
     }
 
     /** @dev Price function for converting between ETH and tokens
@@ -200,7 +206,11 @@ contract Exchange is ERC20 {
         require(minTokens > 0, "Amount of tokens must be greater than 0");
 
         uint256 tokenReserve = getReserve(address(this));
-        uint256 tokensBought = getInputPrice(ethSold, address(this).balance - ethSold, tokenReserve);
+        uint256 tokensBought = getInputPrice(
+            ethSold,
+            address(this).balance - ethSold,
+            tokenReserve
+        );
 
         require(
             tokensBought >= minTokens,
