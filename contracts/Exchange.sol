@@ -60,7 +60,7 @@ contract Exchange is ERC20 {
         uint256 maxTokens,
         uint256 deadline
     ) public payable returns (uint256) {
-        require(deadline > block.timestamp, "The timelimit has passed");
+        //require(deadline > block.timestamp, "The timelimit has passed");
         require(maxTokens > 0, "Number of tokens invalid");
         require(msg.value > 0, "ETH not sent");
 
