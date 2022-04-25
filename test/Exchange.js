@@ -37,20 +37,21 @@ describe("Exchange", function () {
         expect(await exchange.name()).to.equal("Uniswap-V1");
         expect(await exchange.symbol()).to.equal("UNI-V1");
         expect(await exchange.totalSupply()).to.equal(0);
-        
     })
 
-    xit("Should add liquidity", async function () {
-        
-
+    xit("Should create a new liquidity pool when calling addLiquidity for the first time", async function () {
         const minLiquidity = 100;
         const maxTokens = 1;
         const deadline = 1; //TODO: How to pass the equivalent of block.latest in js
         const ethSent = 2;
 
-        // Add liquidity, initial liquidity returned should equal value of eth sent
-        expect(await exchange.connect(deployer).addLiquidity(minLiquidity, maxTokens, deadline, { value: ethSent }).to.equal(ethSent));
+        exchange.connect(deployer).addLiquidity(minLiquidity, maxTokens, deadline, {value: ethSent});
 
+        //expect(await exchange.totalSupply()).to.equal(web3.utils.toWei(String(ethSent),'ether'));
+
+        //expect(initialLiquidity).to.equal(web3.utils.toWei(String(ethSent),'ether'));
+        //await expect(exchange.connect(deployer).addLiquidity(minLiquidity, maxTokens, deadline, {value: ethSent})).to.equal(web3.utils.toWei(String(ethSent),'ether'));
+      
         
     })
 }) 

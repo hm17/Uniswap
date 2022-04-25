@@ -217,7 +217,7 @@ contract Exchange is ERC20 {
             "Tokens bought less than amount expected"
         );
 
-        transferTokensFrom(address(this), recipient, tokensBought); //TODO: Double check from is exchange and not msg.sender
+        IERC20(token).transfer(recipient, tokensBought);
 
         emit TokenPurchase(buyer, ethSold, tokensBought);
 
@@ -277,17 +277,18 @@ contract Exchange is ERC20 {
             tokenReserve
         );
 
-        // Refund if ethSold > maxEth (in wei)
-        uint256 ethRefund = maxEth - ethSold;
-        if (ethRefund > 0) {
-            payable(buyer).transfer(ethRefund);
+        if(maxEth > ethSold) {
+            uint256 ethRefund = maxEth.sub(ethSold);
+            if (ethRefund > 0) {
+                payable(buyer).transfer(ethRefund);
+            }
         }
-
+        
         transferTokensFrom(address(this), recipient, tokensBought);
 
         emit TokenPurchase(buyer, ethSold, tokensBought);
 
-        return ethSold * (10**18); //TODO: double check this is in wei
+        return ethSold;
     }
 
     /** @dev Convert ETH to tokens */
