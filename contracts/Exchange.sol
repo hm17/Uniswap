@@ -3,13 +3,10 @@ pragma solidity ^0.8.4;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "./SafeMath.sol";
 
 // @title Uniswap V1 Exchange
 // @author Hazel Madolid
 contract Exchange is ERC20 {
-    using SafeMath for uint256;
-
     // Address of ERC20 token sold on this exchange
     address public token;
 
@@ -60,7 +57,7 @@ contract Exchange is ERC20 {
         uint256 maxTokens,
         uint256 deadline
     ) public payable returns (uint256) {
-        //require(deadline > block.timestamp, "The timelimit has passed");
+        require(deadline > block.timestamp, "The timelimit has passed");
         require(maxTokens > 0, "Number of tokens invalid");
         require(msg.value > 0, "ETH not sent");
 
@@ -71,10 +68,10 @@ contract Exchange is ERC20 {
             require(minLiquidity > 0, "Invalid value for min liquidity");
 
             // Mint liquidity tokens in proportion to ETH and tokens added.
-            uint256 ethReserve = address(this).balance - msg.value;
+            uint256 ethReserve = address(this).balance - msg.value; 
             uint256 tokenReserve = getReserve(address(this));
-            uint256 tokenAmount = (msg.value * tokenReserve) / ethReserve + 1;
-            uint256 liquidityMinted = (msg.value * totalLiquidity) / ethReserve;
+            uint256 tokenAmount = msg.value * tokenReserve / ethReserve + 1;
+            uint256 liquidityMinted = msg.value * totalLiquidity / ethReserve;
 
             require(maxTokens >= tokenAmount, "Token amount exceeds max");
             require(
@@ -122,34 +119,28 @@ contract Exchange is ERC20 {
     ) public returns (uint256, uint256) {
         require(amount > 0, "Amount must be greater than 0");
         require(deadline > block.timestamp, "The timelimit has passed");
-        require(minEth > 0, "ETH amount must be greater than 0");
-
-        // ETH needs to be calculated in wei
-        uint256 minEthWei = minEth * (10**18);
+        require(minEth > 0 && minTokens > 0); 
 
         uint256 totalLiquidity = totalSupply();
         require(totalLiquidity > 0, "There is no liquidity to remove");
 
         uint256 tokenReserve = getReserve(address(this));
-        uint256 ethAmount = (amount.mul(address(this).balance)).div(
-            totalLiquidity
-        );
-        uint256 ethAmountWei = ethAmount.mul(10**18);
-        uint256 tokenAmount = (amount.mul(tokenReserve)).div(totalLiquidity);
+        uint ethBalance = address(this).balance;
+        uint256 ethAmount = amount * ethBalance / totalLiquidity;
+        uint256 tokenAmount = (amount * 10**18) * tokenReserve / totalLiquidity;
 
-        require(ethAmountWei >= minEthWei, "Minimum ETH amount not met");
-        require(tokenAmount >= minTokens, "Minimum token amount not met");
+        require(ethAmount >= minEth, "Minimum ETH amount not met");
 
         // Burn liquidity tokens
         _burn(msg.sender, amount);
 
         // Both ETH and tokens are returned
         payable(msg.sender).transfer(ethAmount);
-        transferTokensFrom(address(this), msg.sender, tokenAmount);
+        IERC20(token).transfer(msg.sender, tokenAmount);
 
         emit RemoveLiquidity(msg.sender, ethAmount, tokenAmount);
 
-        return (ethAmountWei, tokenAmount);
+        return (ethAmount, tokenAmount);
     }
 
     /** @dev Price function for converting between ETH and tokens
@@ -277,14 +268,14 @@ contract Exchange is ERC20 {
             tokenReserve
         );
 
-        if(maxEth > ethSold) {
-            uint256 ethRefund = maxEth.sub(ethSold);
+        if (maxEth > ethSold) {
+            uint256 ethRefund = maxEth - ethSold;
             if (ethRefund > 0) {
                 payable(buyer).transfer(ethRefund);
             }
         }
-        
-        transferTokensFrom(address(this), recipient, tokensBought);
+
+        IERC20(token).transfer(recipient, tokensBought);
 
         emit TokenPurchase(buyer, ethSold, tokensBought);
 
@@ -342,7 +333,7 @@ contract Exchange is ERC20 {
             tokenReserve,
             address(this).balance
         );
-        uint256 weiBought = ethBought * (10**18);
+        uint256 weiBought = ethBought;
         require(weiBought >= minEth, "ETH bought must be greater than minimum");
         payable(recipient).transfer(weiBought);
 
@@ -353,7 +344,7 @@ contract Exchange is ERC20 {
         return weiBought;
     }
 
-    /** @dev Convert ETH to tokens */
+    /** @dev Convert tokens to ETH */
     function tokenToEthSwapInput(
         uint256 tokensSold,
         uint256 minEth,
@@ -369,7 +360,7 @@ contract Exchange is ERC20 {
             );
     }
 
-    /** @dev Convert ETH to tokens and transfer ETH */
+    /** @dev Convert tokens to ETH and transfer ETH */
     function tokenToEthTransferInput(
         uint256 tokensSold,
         uint256 minEth,
@@ -478,7 +469,7 @@ contract Exchange is ERC20 {
             address(this).balance
         );
 
-        uint256 weiBought = ethBought * (10**18);
+        uint256 weiBought = ethBought;
         require(weiBought >= minEthBought, "The minimum ETH not met");
 
         transferTokensFrom(buyer, address(this), tokensSold);
@@ -677,7 +668,7 @@ contract Exchange is ERC20 {
             tokenReserve,
             address(this).balance
         );
-        return ethBought; // TODO: double check in wei
+        return ethBought;
     }
 
     /** @dev Price function for token to ETH trades with exact output
