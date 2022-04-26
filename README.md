@@ -12,3 +12,4 @@ npx hardhat test
 Can also test in Remix
 1. Copy Token.sol and Exchange.sol
 2. Deploy Token.sol first then Exchange.sol
+3. Before adding liquidity to Exchange, you will have to approve the Exchange contract address on Token.sol
