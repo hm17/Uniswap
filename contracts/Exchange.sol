@@ -24,6 +24,10 @@ contract Exchange is ERC20 {
         ethToTokenInput(msg.value, 1, block.timestamp, msg.sender, msg.sender);
     }
 
+    receive() external payable { 
+        address(this).balance + msg.value;
+    }
+
     /**
      *   @param tokenAddress Address of ERC20 token sold on exchange
      **/
